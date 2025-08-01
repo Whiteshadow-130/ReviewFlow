@@ -12,6 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Plus, Edit, Trash2, Loader2, Package, Upload, Download } from 'lucide-react';
 import ProductForm from '@/components/ProductForm';
 import Pagination from '@/components/Pagination';
+import { usePlan } from '@/hooks/usePlan';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +48,8 @@ const AllProducts = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const fileInputRef = useRef(null);
+  const { plan } = usePlan();
+  const navigate = useNavigate();
   
   const [currentPage, setCurrentPage] = useState(1);
   const [showProductForm, setShowProductForm] = useState(false);
@@ -62,8 +66,11 @@ const AllProducts = () => {
   const totalProducts = data?.count ?? 0;
   const totalPages = Math.ceil(totalProducts / ITEMS_PER_PAGE);
 
-  const mutation = useMutation({
+  const productMutation = useMutation({
     mutationFn: async ({ productData, isEditing }) => {
+      if (!isEditing && totalProducts >= plan.features.products) {
+        throw new Error(`Product limit of ${plan.features.products} reached for the ${plan.name} plan.`);
+      }
       const submissionData = { ...productData, user_id: user.id };
       if (isEditing) {
         const { error } = await supabase.from('products').update(submissionData).eq('id', editingProduct.id);
@@ -75,12 +82,13 @@ const AllProducts = () => {
     },
     onSuccess: (_, { isEditing }) => {
       toast({ title: `Product ${isEditing ? 'updated' : 'added'} successfully!` });
-      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['products', user?.id, currentPage] });
+      queryClient.invalidateQueries({ queryKey: ['products', user?.id] });
       setShowProductForm(false);
       setEditingProduct(null);
     },
-    onError: (error, { isEditing }) => {
-      toast({ title: `Error ${isEditing ? 'updating' : 'adding'} product`, description: error.message, variant: "destructive" });
+    onError: (error) => {
+      toast({ title: `Error`, description: error.message, variant: "destructive" });
     },
   });
   
@@ -100,7 +108,21 @@ const AllProducts = () => {
   });
 
   const handleFormSubmit = (productData) => {
-    mutation.mutate({ productData, isEditing: !!editingProduct });
+    productMutation.mutate({ productData, isEditing: !!editingProduct });
+  };
+
+  const handleAddProductClick = () => {
+    if (totalProducts >= plan.features.products) {
+      toast({
+        title: "Product limit reached",
+        description: `You have reached the limit of ${plan.features.products} product(s) for the ${plan.name} plan. Please upgrade to add more.`,
+        variant: "destructive",
+        action: <Button onClick={() => navigate('/pricing')}>Upgrade Plan</Button>
+      });
+      return;
+    }
+    setEditingProduct(null);
+    setShowProductForm(true);
   };
   
   const handleExportCSV = () => {
@@ -138,6 +160,10 @@ const AllProducts = () => {
           }));
 
         if (productsToInsert.length > 0) {
+          if (totalProducts + productsToInsert.length > plan.features.products) {
+            toast({ title: "Import failed", description: `Importing these products would exceed your plan's limit of ${plan.features.products} products.`, variant: "destructive" });
+            return;
+          }
           const { error } = await supabase.from('products').insert(productsToInsert);
           if (error) {
             toast({ title: "Import failed", description: error.message, variant: "destructive" });
@@ -169,18 +195,18 @@ const AllProducts = () => {
             <input type="file" ref={fileInputRef} onChange={handleImportCSV} className="hidden" accept=".csv" />
             <Button variant="outline" onClick={() => fileInputRef.current.click()}><Upload className="h-4 w-4 mr-2" /> Import CSV</Button>
             <Button variant="outline" onClick={handleExportCSV}><Download className="h-4 w-4 mr-2" /> Export CSV</Button>
-            <Button onClick={() => { setEditingProduct(null); setShowProductForm(true); }}><Plus className="h-4 w-4 mr-2" /> Add Product</Button>
+            <Button onClick={handleAddProductClick}><Plus className="h-4 w-4 mr-2" /> Add Product</Button>
           </div>
         </motion.div>
 
         {isLoading ? (
-          <div className="flex justify-center items-center h-64"><Loader2 className="h-10 w-10 animate-spin" /></div>
+          <div className="flex justify-center items-center h-64"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>
         ) : products.length === 0 ? (
           <Card><CardContent className="p-12 text-center">
               <Package className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No products found</h3>
+              <h3 className="text-xl font-semibold mb-2 text-foreground">No products found</h3>
               <p className="text-muted-foreground mb-6">Add your first product to get started.</p>
-              <Button onClick={() => setShowProductForm(true)}><Plus className="h-4 w-4 mr-2" /> Add Your First Product</Button>
+              <Button onClick={handleAddProductClick}><Plus className="h-4 w-4 mr-2" /> Add Your First Product</Button>
             </CardContent>
           </Card>
         ) : (
@@ -190,7 +216,7 @@ const AllProducts = () => {
                 <motion.div key={product.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
                   <Card className="flex flex-col h-full overflow-hidden">
                     <img src={product.image_url || `https://via.placeholder.com/400x200/e5e7eb/4b5563?text=${encodeURIComponent(product.title)}`} alt={product.title} className="w-full h-40 object-cover bg-muted" />
-                    <CardHeader><CardTitle className="truncate">{product.title}</CardTitle><CardDescription>ASIN: {product.asin}</CardDescription></CardHeader>
+                    <CardHeader><CardTitle className="truncate text-card-foreground">{product.title}</CardTitle><CardDescription className="text-muted-foreground">ASIN: {product.asin}</CardDescription></CardHeader>
                     <CardContent className="flex-grow flex items-end">
                       <div className="flex space-x-2 w-full">
                          <Button size="sm" variant="secondary" className="flex-1" onClick={() => { setEditingProduct(product); setShowProductForm(true); }}><Edit className="h-4 w-4 mr-2" />Edit</Button>
@@ -215,7 +241,7 @@ const AllProducts = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteMutation.mutate(deletingProduct.id)} disabled={deleteMutation.isPending}>
+            <AlertDialogAction onClick={() => deleteMutation.mutate(deletingProduct.id)} disabled={deleteMutation.isPending} className="bg-destructive hover:bg-destructive/90">
               {deleteMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Delete
             </AlertDialogAction>
           </AlertDialogFooter>

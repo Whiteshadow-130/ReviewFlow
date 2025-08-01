@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
@@ -9,10 +8,11 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Edit, Trash2, Loader2, QrCode, Eye, Link as LinkIcon, Download } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, QrCode, Eye, Link as LinkIcon, Download, AlertCircle } from 'lucide-react';
 import CampaignForm from '@/components/CampaignForm';
 import Pagination from '@/components/Pagination';
 import QRCode from 'qrcode';
+import { usePlan } from '@/hooks/usePlan';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +48,7 @@ const ManageCampaigns = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const { plan } = usePlan();
 
   const [currentPage, setCurrentPage] = useState(1);
   const [showCampaignForm, setShowCampaignForm] = useState(false);
@@ -56,8 +57,7 @@ const ManageCampaigns = () => {
 
   useEffect(() => {
     if (location.state?.openForm) {
-      setEditingCampaign(null);
-      setShowCampaignForm(true);
+      handleCreateClick();
     }
   }, [location.state]);
 
@@ -72,38 +72,26 @@ const ManageCampaigns = () => {
   const totalPages = Math.ceil(totalCampaigns / ITEMS_PER_PAGE);
 
   const campaignMutation = useMutation({
-    mutationFn: async ({ campaignData, productIds, isEditing }) => {
-      const { ...dataToUpsert } = { ...campaignData, user_id: user.id };
+    mutationFn: async (campaignData) => {
+      const { ...dataToUpsert } = { ...campaignData, user_id: user.id, is_active: true };
       
-      const { data: campaignResult, error: campaignError } = await supabase
+      const { error } = await supabase
         .from('campaigns')
-        .upsert(isEditing ? { id: editingCampaign.id, ...dataToUpsert } : dataToUpsert)
+        .upsert(dataToUpsert)
         .select()
         .single();
       
-      if (campaignError) throw campaignError;
-      
-      const campaignId = campaignResult.id;
-      
-      // First, remove all existing product links for this campaign
-      const { error: deleteError } = await supabase.from('campaign_products').delete().eq('campaign_id', campaignId);
-      if (deleteError) throw deleteError;
-
-      // Then, insert the new ones
-      if (productIds && productIds.length > 0) {
-        const productLinks = productIds.map(productId => ({ campaign_id: campaignId, product_id: productId }));
-        const { error: insertError } = await supabase.from('campaign_products').insert(productLinks);
-        if (insertError) throw insertError;
-      }
+      if (error) throw error;
     },
-    onSuccess: (_, { isEditing }) => {
+    onSuccess: (_, variables) => {
+      const isEditing = !!variables.id;
       toast({ title: `Campaign ${isEditing ? 'updated' : 'created'} successfully!`, className: 'bg-success text-white' });
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      queryClient.invalidateQueries({ queryKey: ['allProducts'] });
       setShowCampaignForm(false);
       setEditingCampaign(null);
     },
-    onError: (error, { isEditing }) => {
+    onError: (error, variables) => {
+      const isEditing = !!variables.id;
       toast({ title: `Error ${isEditing ? 'updating' : 'creating'} campaign`, description: error.message, variant: "destructive" });
     },
   });
@@ -123,8 +111,25 @@ const ManageCampaigns = () => {
   });
 
   const handleCampaignFormSubmit = (formData) => {
-    const { productIds, ...campaignData } = formData;
-    campaignMutation.mutate({ campaignData, productIds, isEditing: !!editingCampaign });
+    const dataToSubmit = {
+      ...formData,
+      id: editingCampaign?.id,
+    };
+    campaignMutation.mutate(dataToSubmit);
+  };
+
+  const handleCreateClick = () => {
+    if (totalCampaigns >= plan.features.campaigns) {
+      toast({
+        title: "Campaign limit reached",
+        description: `You have reached the limit of ${plan.features.campaigns} campaign(s) for the ${plan.name} plan. Please upgrade to create more.`,
+        variant: "destructive",
+        action: <Button onClick={() => navigate('/pricing')}>Upgrade Plan</Button>
+      });
+      return;
+    }
+    setEditingCampaign(null);
+    setShowCampaignForm(true);
   };
 
   const copyCampaignUrl = (campaignId) => {
@@ -160,7 +165,7 @@ const ManageCampaigns = () => {
             <h1 className="text-3xl font-bold text-foreground">Manage Campaigns</h1>
             <p className="text-muted-foreground mt-1">Create, edit, and manage your review collection campaigns.</p>
           </div>
-          <Button variant="accent" onClick={() => { setEditingCampaign(null); setShowCampaignForm(true); }}>
+          <Button variant="accent" onClick={handleCreateClick}>
             <Plus className="h-4 w-4 mr-2" />
             Create Campaign
           </Button>
@@ -174,7 +179,7 @@ const ManageCampaigns = () => {
               <QrCode className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">No campaigns yet</h3>
               <p className="text-muted-foreground mb-6">Create your first review collection campaign to get started.</p>
-              <Button variant="accent" onClick={() => setShowCampaignForm(true)}>
+              <Button variant="accent" onClick={handleCreateClick}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Your First Campaign
               </Button>

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -42,14 +41,14 @@ const CampaignForm = ({ onSubmit, onClose, campaign }) => {
     name: campaign?.name || '',
     marketplace: campaign?.marketplace || '',
     promo_message: campaign?.promo_message || '',
-    image_url: campaign?.image_url || ''
+    image_url: campaign?.image_url || '',
   });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(campaign?.image_url || null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = React.useRef(null);
   
-  const [selectedProductIds, setSelectedProductIds] = useState([]);
+  const [selectedProductIds, setSelectedProductIds] = useState(campaign?.products || []);
   const [popoverOpen, setPopoverOpen] = useState(false);
 
   const { data: allProducts, isLoading: isLoadingProducts } = useQuery({
@@ -57,18 +56,6 @@ const CampaignForm = ({ onSubmit, onClose, campaign }) => {
     queryFn: () => fetchProducts(user?.id),
     enabled: !!user?.id,
   });
-
-  useEffect(() => {
-    if (campaign) {
-      const fetchCampaignProducts = async () => {
-        const { data, error } = await supabase.from('campaign_products').select('product_id').eq('campaign_id', campaign.id);
-        if (!error) {
-            setSelectedProductIds(data.map(p => p.product_id));
-        }
-      };
-      fetchCampaignProducts();
-    }
-  }, [campaign]);
 
   const marketplaces = [
     { value: 'amazon.com', label: 'Amazon.com (US)' }, { value: 'amazon.co.uk', label: 'Amazon.co.uk (UK)' },
@@ -107,8 +94,11 @@ const CampaignForm = ({ onSubmit, onClose, campaign }) => {
       const { data: urlData } = supabase.storage.from('campaign-images').getPublicUrl(uploadData.path);
       finalImageUrl = urlData.publicUrl;
     }
+    
+    // Pass the product IDs directly in the form data for the mutation
+    const finalFormData = { ...formData, image_url: finalImageUrl, products: selectedProductIds };
 
-    await onSubmit({ ...formData, image_url: finalImageUrl, productIds: selectedProductIds });
+    await onSubmit(finalFormData);
     setUploading(false);
   };
 

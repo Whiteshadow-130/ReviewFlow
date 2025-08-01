@@ -12,6 +12,7 @@ import Step2_CustomerDetails from '@/components/review/Step2_CustomerDetails';
 import Step3_WriteReview from '@/components/review/Step3_WriteReview';
 import Step4_ThankYou from '@/components/review/Step4_ThankYou';
 import { Card, CardContent } from '@/components/ui/card';
+import { plans } from '@/hooks/usePlan';
 
 const ReviewCollection = () => {
   const { campaignId } = useParams();
@@ -25,6 +26,7 @@ const ReviewCollection = () => {
   const [asin, setAsin] = useState('');
   const [isVerified, setVerified] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [userPlan, setUserPlan] = useState(plans.free);
   
   const [formData, setFormData] = useState({
     orderNumber: '',
@@ -48,16 +50,36 @@ const ReviewCollection = () => {
     try {
       const { data: campaignData, error: campaignError } = await supabase
         .from('campaigns')
-        .select('*, products:campaign_products(product_id)')
+        .select(`
+          *,
+          profile:profiles!user_id(plan)
+        `)
         .eq('id', campaignId)
         .single();
 
-      if (campaignError || !campaignData) throw new Error(campaignError?.message || "Campaign not found.");
+      if (campaignError || !campaignData) {
+        throw new Error(campaignError?.message || "Campaign not found.");
+      }
+      
+      const currentPlanKey = campaignData.profile?.plan || 'free';
+      const currentPlan = plans[currentPlanKey];
+      setUserPlan(currentPlan);
+
+      const { count: reviewCount, error: reviewCountError } = await supabase
+        .from('reviews')
+        .select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId);
+      
+      if (reviewCountError) throw reviewCountError;
+
+      if (reviewCount >= currentPlan.features.reviews) {
+        throw new Error("This campaign has reached its review limit for the current plan.");
+      }
+
       setCampaign(campaignData);
 
-      const productIds = campaignData.products.map(p => p.product_id);
-
-      if (productIds.length > 0) {
+      const productIds = campaignData.products;
+      if (productIds && productIds.length > 0) {
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select('*')
@@ -68,7 +90,7 @@ const ReviewCollection = () => {
       }
 
     } catch (e) {
-      setError(e.message);
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -85,7 +107,7 @@ const ReviewCollection = () => {
     setSubmitting(true);
     let screenshotUrl = null;
 
-    if (formData.reviewScreenshot) {
+    if (formData.reviewScreenshot && userPlan.features.screenshot_verification) {
       const file = formData.reviewScreenshot;
       const fileName = `${campaignId}/${Date.now()}_${file.name}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -123,7 +145,7 @@ const ReviewCollection = () => {
     try {
       const { error: insertError } = await supabase.from('reviews').insert(reviewData);
       if (insertError) {
-        if (insertError.code === '23505') { // unique_violation for order_id
+        if (insertError.code === '23505') {
           throw new Error("This Order ID has already been used for this campaign.");
         }
         throw insertError;
@@ -150,7 +172,7 @@ const ReviewCollection = () => {
   if (error || !campaign) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-        <Card className="max-w-md w-full soft-shadow"><CardContent className="p-8 text-center"><AlertTriangle className="h-12 w-12 text-warning mx-auto mb-4" /><h2 className="text-xl font-semibold text-foreground mb-2">Campaign Not Found</h2><p className="text-muted-foreground">{error || "This campaign doesn't exist or is no longer active."}</p></CardContent></Card>
+        <Card className="max-w-md w-full soft-shadow"><CardContent className="p-8 text-center"><AlertTriangle className="h-12 w-12 text-warning mx-auto mb-4" /><h2 className="text-xl font-semibold text-foreground mb-2">Campaign Not Found</h2><p className="text-muted-foreground">{error?.message || "This campaign doesn't exist or is no longer active."}</p></CardContent></Card>
       </div>
     );
   }
@@ -170,7 +192,7 @@ const ReviewCollection = () => {
             </motion.div>
           )}
           {campaign.promo_message && currentStep < 4 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-6 bg-accent/10 border border-accent/20 rounded-lg p-4 text-center text-accent-darker font-medium flex items-center justify-center">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-6 bg-accent/10 border border-accent/20 rounded-lg p-4 text-center font-medium flex items-center justify-center">
               <Gift className="inline-block h-5 w-5 mr-2 text-accent" />
               <span className="text-foreground">{campaign.promo_message}</span>
             </motion.div>
@@ -179,9 +201,9 @@ const ReviewCollection = () => {
           <StepIndicator currentStep={currentStep} campaignName={campaign.name} />
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.5 }}>
-            {currentStep === 1 && <Step1_ProductFeedback formData={formData} setFormData={setFormData} onSuccess={handleNextStep} setAsin={setAsin} campaignId={campaignId} products={products} setVerified={setVerified} />}
+            {currentStep === 1 && <Step1_ProductFeedback formData={formData} setFormData={setFormData} onSuccess={handleNextStep} setAsin={setAsin} campaign={campaign} products={products} setVerified={setVerified} />}
             {currentStep === 2 && <Step2_CustomerDetails formData={formData} setFormData={setFormData} onNext={handleNextStep} onBack={handlePrevStep} />}
-            {currentStep === 3 && <Step3_WriteReview formData={formData} setFormData={setFormData} asin={asin} marketplace={campaign.marketplace} onNext={handleFinalSubmit} onBack={handlePrevStep} loading={submitting} />}
+            {currentStep === 3 && <Step3_WriteReview formData={formData} setFormData={setFormData} asin={asin} marketplace={campaign.marketplace} onNext={handleFinalSubmit} onBack={handlePrevStep} loading={submitting} plan={userPlan} />}
             {currentStep === 4 && <Step4_ThankYou formData={formData} campaign={campaign} />}
           </motion.div>
         </div>

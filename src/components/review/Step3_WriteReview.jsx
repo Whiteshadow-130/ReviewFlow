@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
@@ -6,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, CheckCircle, ExternalLink, Loader2, Upload, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle, ExternalLink, Loader2, Upload, X, Lock } from 'lucide-react';
 
 const reviewSuggestions = [
   "This product exceeded my expectations! The quality is outstanding.",
@@ -16,7 +15,7 @@ const reviewSuggestions = [
   "Amazing quality and durability. Worth every penny!"
 ];
 
-const Step3_WriteReview = ({ formData, setFormData, asin, marketplace, onNext, onBack, loading }) => {
+const Step3_WriteReview = ({ formData, setFormData, asin, marketplace, onNext, onBack, loading, plan }) => {
   const { toast } = useToast();
   const [showAmazonFlow, setShowAmazonFlow] = useState(false);
   const [screenshot, setScreenshot] = useState(null);
@@ -55,9 +54,10 @@ const Step3_WriteReview = ({ formData, setFormData, asin, marketplace, onNext, o
   };
   
   const canWriteReviewOnAmazon = formData.satisfaction === 'very_satisfied' || formData.satisfaction === 'somewhat_satisfied';
+  const screenshotRequired = canWriteReviewOnAmazon && showAmazonFlow && plan.features.screenshot_verification;
 
   const handleSubmit = () => {
-    if (canWriteReviewOnAmazon && showAmazonFlow && !screenshot) {
+    if (screenshotRequired && !screenshot) {
       toast({
         title: "Screenshot required",
         description: "Please upload a screenshot of your submitted review on Amazon.",
@@ -116,7 +116,7 @@ const Step3_WriteReview = ({ formData, setFormData, asin, marketplace, onNext, o
             </Button>
           )}
 
-          {showAmazonFlow && (
+          {showAmazonFlow && plan.features.screenshot_verification && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -148,6 +148,20 @@ const Step3_WriteReview = ({ formData, setFormData, asin, marketplace, onNext, o
             </motion.div>
           )}
 
+          {showAmazonFlow && !plan.features.screenshot_verification && (
+             <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="space-y-4 bg-amber-500/10 p-4 rounded-lg text-center"
+            >
+              <Lock className="h-6 w-6 mx-auto text-amber-600" />
+              <h4 className="font-semibold text-amber-700">Screenshot Verification Not Available</h4>
+              <p className="text-sm text-amber-600">
+                This feature is not available on the current plan. You can proceed without uploading a screenshot.
+              </p>
+            </motion.div>
+          )}
+
           <div className="flex space-x-3 pt-4 border-t">
             <Button type="button" variant="outline" onClick={onBack} disabled={loading}>
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -158,7 +172,7 @@ const Step3_WriteReview = ({ formData, setFormData, asin, marketplace, onNext, o
               onClick={handleSubmit} 
               variant="accent"
               className="flex-1" 
-              disabled={loading || (canWriteReviewOnAmazon && showAmazonFlow && !screenshot)}
+              disabled={loading || (screenshotRequired && !screenshot)}
             >
               {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
               {loading ? 'Submitting...' : 'Submit Review'}

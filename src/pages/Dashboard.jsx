@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useQuery } from '@tanstack/react-query';
-import { QrCode, Star, Package, Loader2, AlertTriangle, Plus, BarChart2, PieChart, Smile, Frown } from 'lucide-react';
+import { QrCode, Star, Package, Loader2, AlertTriangle, Plus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
@@ -42,8 +42,7 @@ const fetchDashboardData = async (userId) => {
 
   // Analytics calculations
   const totalReviews = reviews.length;
-  const submissionRate = campaigns.length > 0 ? (totalReviews / campaigns.length) : 0; // This is a simplification
-
+  
   const marketplacePerformance = campaigns.reduce((acc, campaign) => {
     const reviewCount = reviews.filter(r => r.campaign_id === campaign.id).length;
     acc[campaign.marketplace] = (acc[campaign.marketplace] || 0) + reviewCount;
@@ -59,7 +58,6 @@ const fetchDashboardData = async (userId) => {
     totalCampaigns: campaigns.length,
     totalReviews,
     totalProducts: productsCount,
-    submissionRate,
     marketplacePerformance,
     sentimentCounts,
     recentReviews: reviews.slice(0, 5).map(r => ({...r, campaignName: campaigns.find(c => c.id === r.campaign_id)?.name || 'N/A'}))
@@ -96,14 +94,14 @@ const Dashboard = () => {
     datasets: [{
       label: 'Reviews by Marketplace',
       data: Object.values(data?.marketplacePerformance || {}),
-      backgroundColor: 'rgba(59, 130, 246, 0.5)',
-      borderColor: 'rgba(59, 130, 246, 1)',
+      backgroundColor: 'hsl(var(--primary))',
+      borderColor: 'hsl(var(--primary))',
       borderWidth: 1,
     }],
   };
 
   if (isLoading) {
-    return <div className="flex justify-center items-center h-screen"><Loader2 className="h-12 w-12 animate-spin" /></div>;
+    return <div className="flex justify-center items-center h-screen"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
   if (error) {
@@ -137,7 +135,7 @@ const Dashboard = () => {
                   <stat.icon className={`h-5 w-5 ${stat.color}`} />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{stat.value ?? 0}</div>
+                  <div className="text-2xl font-bold text-foreground">{stat.value ?? 0}</div>
                 </CardContent>
               </Card>
             </motion.div>
@@ -147,14 +145,14 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="lg:col-span-3">
             <Card className="h-full">
-              <CardHeader><CardTitle>Marketplace Performance</CardTitle></CardHeader>
-              <CardContent><Bar data={marketplaceChartData} options={{ responsive: true }} /></CardContent>
+              <CardHeader><CardTitle className="text-foreground">Marketplace Performance</CardTitle></CardHeader>
+              <CardContent><Bar data={marketplaceChartData} options={{ responsive: true, plugins: { legend: { labels: { color: 'hsl(var(--foreground))' } } }, scales: { x: { ticks: { color: 'hsl(var(--muted-foreground))' } }, y: { ticks: { color: 'hsl(var(--muted-foreground))' } } } }} /></CardContent>
             </Card>
           </motion.div>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="lg:col-span-2">
             <Card className="h-full">
-              <CardHeader><CardTitle>Feedback Sentiment</CardTitle></CardHeader>
-              <CardContent className="flex justify-center items-center h-64"><Pie data={sentimentChartData} options={{ responsive: true, maintainAspectRatio: false }} /></CardContent>
+              <CardHeader><CardTitle className="text-foreground">Feedback Sentiment</CardTitle></CardHeader>
+              <CardContent className="flex justify-center items-center h-64"><Pie data={sentimentChartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: 'hsl(var(--foreground))' } } } }} /></CardContent>
             </Card>
           </motion.div>
         </div>
@@ -166,8 +164,8 @@ const Dashboard = () => {
           >
             <Card className="h-full">
               <CardHeader>
-                <CardTitle>Recent Reviews</CardTitle>
-                <CardDescription>The latest 5 reviews submitted by your customers.</CardDescription>
+                <CardTitle className="text-foreground">Recent Reviews</CardTitle>
+                <CardDescription className="text-muted-foreground">The latest 5 reviews submitted by your customers.</CardDescription>
               </CardHeader>
               <CardContent>
                  {!data.recentReviews || data.recentReviews.length === 0 ? <p className="text-muted-foreground">No reviews yet.</p> :
@@ -176,11 +174,11 @@ const Dashboard = () => {
                      {data.recentReviews.map((review, i) => (
                        <div key={i} className="flex items-center justify-between p-2 rounded-md hover:bg-muted">
                          <div>
-                           <p className="font-medium">{review.campaignName}</p>
+                           <p className="font-medium text-foreground">{review.campaignName}</p>
                            <p className="text-sm text-muted-foreground">{new Date(review.submitted_at).toLocaleDateString()}</p>
                          </div>
                          <div className="text-right">
-                           <p className="text-sm font-medium">{review.satisfaction_rating.replace(/_/g, ' ')}</p>
+                           <p className="text-sm font-medium text-foreground">{review.satisfaction_rating.replace(/_/g, ' ')}</p>
                          </div>
                        </div>
                      ))}
@@ -196,7 +194,7 @@ const Dashboard = () => {
           >
             <Card className="h-full flex flex-col justify-between">
               <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
+                <CardTitle className="text-foreground">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <Button onClick={() => navigate('/campaigns', { state: { openForm: true } })} className="w-full">

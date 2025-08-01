@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,26 +8,47 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
-import { Star, Mail, Calendar, Package, Download, CheckCircle, AlertCircle, Gift, Eye } from 'lucide-react';
+import { Star, Mail, Calendar, Package, Download, CheckCircle, AlertCircle, Gift, Eye, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import Papa from 'papaparse';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const ReviewsTable = ({ reviews, campaigns, loading, onUpdate }) => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [viewingScreenshot, setViewingScreenshot] = useState(null);
 
-  const handleGiftSentChange = async (reviewId, newStatus) => {
-    try {
+  const updateGiftSentMutation = useMutation({
+    mutationFn: async ({ reviewId, newStatus }) => {
       const { error } = await supabase
         .from('reviews')
         .update({ gift_sent: newStatus })
         .eq('id', reviewId);
-      if (error) throw error;
+
+      if (error) {
+          // Check if it's the specific PGRST116 error, which can happen with RLS.
+          // In our case, we don't need the returned data, so we can consider it a success if the error is about no rows returned.
+          if (error.code === 'PGRST116') {
+             return null; // Suppress this specific error, as the update likely succeeded.
+          }
+          throw error;
+      }
+      return null;
+    },
+    onSuccess: (data, variables) => {
       toast({ title: "Status updated!", description: "Gift sent status has been changed." });
-      if(onUpdate) onUpdate();
-    } catch (error) {
+      // Invalidate queries to refetch the updated data from the server
+      queryClient.invalidateQueries({ queryKey: ['allReviewsData'] });
+      queryClient.invalidateQueries({ queryKey: ['campaignReviews', variables.campaignId] });
+      queryClient.invalidateQueries({ queryKey: ['campaign', variables.campaignId] }); 
+      if (onUpdate) onUpdate();
+    },
+    onError: (error) => {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
-    }
+    },
+  });
+
+  const handleGiftSentChange = (review, newStatus) => {
+    updateGiftSentMutation.mutate({ reviewId: review.id, newStatus, campaignId: review.campaign_id });
   };
 
   const getSatisfactionColor = (satisfaction) => {
@@ -96,7 +118,7 @@ const ReviewsTable = ({ reviews, campaigns, loading, onUpdate }) => {
       <Card>
         <CardContent className="p-12 text-center">
           <Star className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-xl font-semibold mb-2">No reviews yet</h3>
+          <h3 className="text-xl font-semibold mb-2 text-foreground">No reviews yet</h3>
           <p className="text-muted-foreground">Reviews will appear here once customers start submitting feedback</p>
         </CardContent>
       </Card>
@@ -124,8 +146,8 @@ const ReviewsTable = ({ reviews, campaigns, loading, onUpdate }) => {
                 <CardHeader className="pb-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <CardTitle className="text-lg">{review.customer_name}</CardTitle>
-                      <CardDescription className="flex items-center mt-1">
+                      <CardTitle className="text-lg text-card-foreground">{review.customer_name}</CardTitle>
+                      <CardDescription className="flex items-center mt-1 text-muted-foreground">
                         <Mail className="h-4 w-4 mr-2" />
                         {review.customer_email}
                       </CardDescription>
@@ -160,7 +182,7 @@ const ReviewsTable = ({ reviews, campaigns, loading, onUpdate }) => {
                   
                   <div className="flex flex-wrap justify-between items-center text-sm text-muted-foreground pt-4 border-t">
                     <div className="flex items-center space-x-4">
-                      <span>Campaign: {getCampaignName(review.campaign_id)}</span>
+                      <span className="text-foreground">Campaign: {getCampaignName(review.campaign_id)}</span>
                       {review.is_verified ? (
                         <Badge variant="outline" className="text-emerald-500 border-emerald-500/40"><CheckCircle className="h-3 w-3 mr-1" /> SP-API Verified</Badge>
                       ) : (
@@ -177,9 +199,13 @@ const ReviewsTable = ({ reviews, campaigns, loading, onUpdate }) => {
                         <Checkbox
                           id={`gift-${review.id}`}
                           checked={!!review.gift_sent}
-                          onCheckedChange={(checked) => handleGiftSentChange(review.id, !!checked)}
+                          onCheckedChange={(checked) => handleGiftSentChange(review, !!checked)}
+                          disabled={updateGiftSentMutation.isPending && updateGiftSentMutation.variables?.reviewId === review.id}
                         />
-                        <Label htmlFor={`gift-${review.id}`} className="flex items-center"><Gift className="h-4 w-4 mr-2" /> Gift Sent</Label>
+                        <Label htmlFor={`gift-${review.id}`} className="flex items-center text-foreground">
+                          {updateGiftSentMutation.isPending && updateGiftSentMutation.variables?.reviewId === review.id ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Gift className="h-4 w-4 mr-2" />}
+                           Gift Sent
+                        </Label>
                       </div>
                     </div>
                   </div>

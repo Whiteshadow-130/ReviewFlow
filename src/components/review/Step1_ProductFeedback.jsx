@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
@@ -18,10 +17,11 @@ const satisfactionOptions = [
   { value: 'very_dissatisfied', label: 'Very Dissatisfied', emoji: '😞' }
 ];
 
-const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, campaignId, products, setVerified }) => {
+const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, campaign, products, setVerified }) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const hasProducts = products && products.length > 0;
+  
+  const campaignHasProducts = campaign?.products && campaign.products.length > 0;
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -30,7 +30,7 @@ const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, camp
   const handleProductSelect = (productId) => {
     const selectedProduct = products.find(p => p.id === productId);
     if (selectedProduct) {
-      setFormData(prev => ({ ...prev, productId: selectedProduct.id, orderNumber: 'N/A' }));
+      setFormData(prev => ({ ...prev, productId: selectedProduct.id }));
       setAsin(selectedProduct.asin);
       setVerified(false);
     }
@@ -40,11 +40,11 @@ const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, camp
     const { data: existingReview, error } = await supabase
       .from('reviews')
       .select('id')
-      .eq('campaign_id', campaignId)
+      .eq('campaign_id', campaign.id)
       .eq('order_id', orderId)
       .single();
 
-    if (error && error.code !== 'PGRST116') { // 'PGRST116' means no rows found, which is good
+    if (error && error.code !== 'PGRST116') {
       throw error;
     }
     if (existingReview) {
@@ -58,7 +58,7 @@ const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, camp
       await verifyOrderUniqueness(formData.orderNumber);
 
       const { data, error } = await supabase.functions.invoke('get-amazon-asin', {
-          body: { campaignId, orderId: formData.orderNumber },
+          body: { campaignId: campaign.id, orderId: formData.orderNumber },
       });
 
       if (error) throw new Error(error.message);
@@ -86,22 +86,29 @@ const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, camp
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.satisfaction || !formData.usedFor7Days) {
-      toast({ title: "Missing information", description: "Please answer all questions.", variant: "destructive" });
+    if (!formData.satisfaction || !formData.usedFor7Days || !formData.orderNumber) {
+      toast({ title: "Missing information", description: "Please answer all questions and provide your Order ID.", variant: "destructive" });
       return;
     }
 
-    if (hasProducts) {
+    if (campaignHasProducts) {
       if (!formData.productId) {
         toast({ title: "Product not selected", description: "Please select the product you are reviewing.", variant: "destructive" });
         return;
       }
-      onSuccess();
-    } else {
-      if (!formData.orderNumber) {
-        toast({ title: "Missing information", description: "Please provide your Amazon Order Number.", variant: "destructive" });
-        return;
+      // Order ID is required, but we don't verify with SP-API. Just check for uniqueness.
+      setLoading(true);
+      try {
+        await verifyOrderUniqueness(formData.orderNumber);
+        setVerified(false); // Not SP-API verified
+        onSuccess();
+      } catch (error) {
+        toast({ title: "Submission Error", description: error.message, variant: "destructive" });
+      } finally {
+        setLoading(false);
       }
+    } else {
+      // No products linked, so we must verify with SP-API
       await fetchASINfromSPAPI();
     }
   };
@@ -121,7 +128,17 @@ const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, camp
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            {hasProducts ? (
+            <div className="space-y-2">
+              <Label htmlFor="orderNumber">Amazon Order Number *</Label>
+              <Input
+                id="orderNumber"
+                placeholder="e.g., 123-1234567-1234567"
+                value={formData.orderNumber}
+                onChange={(e) => handleInputChange('orderNumber', e.target.value)}
+              />
+            </div>
+
+            {campaignHasProducts && (
               <div className="space-y-2">
                 <Label>Which product are you reviewing? *</Label>
                 <Select onValueChange={handleProductSelect} value={formData.productId || ""}>
@@ -139,16 +156,6 @@ const Step1_ProductFeedback = ({ formData, setFormData, onSuccess, setAsin, camp
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="orderNumber">Amazon Order Number *</Label>
-                <Input
-                  id="orderNumber"
-                  placeholder="e.g., 123-1234567-1234567"
-                  value={formData.orderNumber}
-                  onChange={(e) => handleInputChange('orderNumber', e.target.value)}
-                />
               </div>
             )}
 
